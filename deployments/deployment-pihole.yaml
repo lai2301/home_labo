@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pihole
+  namespace: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pihole
+  template:
+    metadata:
+      labels:
+        app: pihole
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: raspi4
+      containers:
+      - name: pihole
+        image: pihole/pihole:latest
+        env:
+        - name: TZ
+          value: "America/Vancouver"
+        - name: FTLCONF_webserver_api_password
+          value: "NvKZ5nkzeD"
+        - name: FTLCONF_dns_listeningMode
+          value: "all"
+        - name: DNS1
+          value: "1.1.1.1"
+        - name: DNS2
+          value: "8.8.8.8"
+        ports:
+        - containerPort: 53
+          protocol: TCP
+          name: dns-tcp
+        - containerPort: 53
+          protocol: UDP
+          name: dns-udp
+        - containerPort: 80
+          protocol: TCP
+          name: web
+        volumeMounts:
+        - name: pihole-storage
+          mountPath: /etc/pihole
+        securityContext:
+          capabilities:
+            add: 
+            - SYS_TIME
+            - SYS_NICE
+      volumes:
+      - name: pihole-storage
+        persistentVolumeClaim:
+          claimName: pihole-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pihole-tcp
+  namespace: prod
+  annotations:
+    metallb.universe.tf/allow-shared-ip: pi-hole
+spec:
+  selector:
+    app: pihole
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: web
+  - port: 53
+    targetPort: 53
+    protocol: TCP
+    name: dns-tcp
+  type: LoadBalancer
+  loadBalancerIP: 192.168.1.21
+  externalTrafficPolicy: Local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pihole-udp
+  namespace: prod
+  annotations:
+    metallb.universe.tf/allow-shared-ip: pi-hole
+spec:
+  selector:
+    app: pihole
+  ports:
+  - port: 53
+    targetPort: 53
+    protocol: UDP
+    name: dns-udp
+  type: LoadBalancer
+  loadBalancerIP: 192.168.1.21
+  externalTrafficPolicy: Local
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pihole-pv
+  namespace: prod
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  local:
+    path: /mnt/k3s-data/k3s-pv/pihole
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - raspi4
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pihole-pvc
+  namespace: prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: local-path

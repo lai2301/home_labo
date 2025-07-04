@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-proxy
+  namespace: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-proxy
+  template:
+    metadata:
+      labels:
+        app: nginx-proxy
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: raspi4
+      containers:
+      - name: nginx-proxy
+        image: jc21/nginx-proxy-manager:2.12.3
+        env:
+        - name: DB_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: db-secret-general
+              key: db-postgres-host
+        - name: DB_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: db-secret-general
+              key: db-postgres-port
+        - name: DB_POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-secret-npm
+              key: db-postgres-user
+        - name: DB_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret-npm
+              key: db-postgres-password
+        - name: DB_POSTGRES_NAME
+          valueFrom:
+            secretKeyRef:
+              name: db-secret-npm
+              key: db-postgres-name
+        - name: DISABLE_IPV6
+          value: "true"
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: letsencrypt
+          mountPath: /etc/letsencrypt
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: nginx-proxy-data-pvc
+      - name: letsencrypt
+        persistentVolumeClaim:
+          claimName: nginx-proxy-letsencrypt-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-proxy
+  namespace: prod
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.1.22
+spec:
+  selector:
+    app: nginx-proxy
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 80
+  - name: https
+    protocol: TCP
+    port: 443
+    targetPort: 443
+  - name: admin
+    protocol: TCP
+    port: 81
+    targetPort: 81
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nginx-proxy-data-pv
+  namespace: prod
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  local:
+    path: /mnt/k3s-data/k3s-pv/nginx-proxy/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - raspi4
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nginx-proxy-letsencrypt-pv
+  namespace: prod
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  local:
+    path: /mnt/k3s-data/k3s-pv/nginx-proxy/letsencrypt
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - raspi4
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-proxy-data-pvc
+  namespace: prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-proxy-letsencrypt-pvc
+  namespace: prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
